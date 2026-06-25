@@ -1,0 +1,10 @@
+[package]
+name = "vat"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cpal   = "0.15"
+hound  = "3.5.0"
+reqwest = { version = "0.12.15", features = ["blocking", "multipart"] }
+uuid   = { version = "1", features = ["v4"] }

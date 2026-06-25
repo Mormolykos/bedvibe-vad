@@ -1,0 +1,7 @@
+# Rust build output (regenerates on `cargo build`)
+/target
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.rs.bk
