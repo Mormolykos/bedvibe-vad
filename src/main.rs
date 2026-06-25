@@ -24,10 +24,11 @@ use reqwest::blocking::{
     multipart::{Form, Part},
 };
 
-const THRESHOLD_DB:    f32 = -30.0;     // voice threshold
-const SILENCE_MS:      u64 = 1_200;    // ms of silence to finalize
-const MUTE_PORT:       u16 = 5006;     // Unity → VAT commands
-const UNITY_PORT:      u16 = 5005;     // VAT → Unity transcriptions
+// Runtime config: override via environment variables or a .env file.
+// Defaults match the original BedVibe companion setup. See .env.example.
+fn env_or<T: std::str::FromStr>(key: &str, default: T) -> T {
+    std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
 
 fn amplitude_to_db(sample: f32) -> f32 {
     let amp = sample.abs().max(1e-6);
@@ -60,8 +61,8 @@ fn write_wav(filepath: &str, samples: &[f32], sample_rate: u32) {
     writer.finalize().expect("❌ Failed to finalize WAV");
 }
 
-fn send_transcription_to_unity(text: &str) {
-    if let Ok(mut sock) = TcpStream::connect(("127.0.0.1", UNITY_PORT)) {
+fn send_transcription_to_unity(text: &str, unity_port: u16) {
+    if let Ok(mut sock) = TcpStream::connect(("127.0.0.1", unity_port)) {
         let body = text;
         let req = format!(
             "POST /transcription HTTP/1.1\r\n\
@@ -73,7 +74,7 @@ fn send_transcription_to_unity(text: &str) {
         );
         let _ = sock.write_all(req.as_bytes());
     } else {
-        eprintln!("⚠ Could not connect to Unity on port {}", UNITY_PORT);
+        eprintln!("⚠ Could not connect to Unity on port {}", unity_port);
     }
 }
 
@@ -88,6 +89,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let temp_folder = &args[2];
 
     println!(">>> VAT main() entry point reached");
+
+    // ---- runtime config (.env file or environment; defaults below) ----
+    dotenvy::dotenv().ok();
+    let threshold_db: f32   = env_or("VAD_THRESHOLD_DB", -30.0_f32);
+    let silence_ms:   u64   = env_or("VAD_SILENCE_MS", 1_200_u64);
+    let mute_port:    u16   = env_or("VAD_MUTE_PORT", 5006_u16);
+    let unity_port:   u16   = env_or("VAD_UNITY_PORT", 5005_u16);
+    let whisper_url: String = std::env::var("VAD_WHISPER_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:8000/inference".to_string());
 
     // pick the named input device
     let host   = cpal::default_host();
@@ -117,7 +127,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 = last_spoke.clone();
         thread::spawn(move || {
-            let listener = TcpListener::bind(("127.0.0.1", MUTE_PORT))
+            let listener = TcpListener::bind(("127.0.0.1", mute_port))
                 .expect("Failed to bind mute port");
             for conn in listener.incoming() {
                 if let Ok(mut sock) = conn {
@@ -161,7 +171,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 for frame in data.chunks(channels_in) {
                     let s  = frame[0];
                     let db = amplitude_to_db(s);
-                    if db > THRESHOLD_DB {
+                    if db > threshold_db {
                         if !*rec {
                             *rec = true;
                             *last = Instant::now();
@@ -186,7 +196,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 for chunk in data.chunks(channels_in) {
                     let s  = chunk[0] as f32 / i16::MAX as f32;
                     let db = amplitude_to_db(s);
-                    if db > THRESHOLD_DB {
+                    if db > threshold_db {
                         if !*rec {
                             *rec = true;
                             *last = Instant::now();
@@ -215,7 +225,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             continue;
         }
         let last_time = *last_spoke.lock().unwrap();
-        if last_time.elapsed().as_millis() as u64 > SILENCE_MS {
+        if last_time.elapsed().as_millis() as u64 > silence_ms {
             // finalize
             let mut buf = sample_buf.lock().unwrap();
             if buf.is_empty() {
@@ -267,7 +277,7 @@ let form = Form::new()
 
 // 5) POST to your local Whisper server
 let resp = client
-    .post("http://127.0.0.1:8000/inference")
+    .post(whisper_url.as_str())
     .multipart(form)
     .send()
     .map_err(|e| {
@@ -291,7 +301,7 @@ println!(
     "{{\"type\":\"transcription\",\"text\":{:?},\"file\":{:?}}}",
     text, filename
 );
-send_transcription_to_unity(&text);
+send_transcription_to_unity(&text, unity_port);
 
             // 8) delete the WAV so your temp folder never fills up
             if let Err(e) = remove_file(&filename) {

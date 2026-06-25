@@ -20,6 +20,18 @@ so the heavy audio work stays out of the game engine.
 
 Rust · cpal · hound · reqwest (multipart) · Whisper ASR · TCP (localhost)
 
+## Configuration
+
+All settings are optional — copy `.env.example` to `.env` and override any of these (or set them as real environment variables):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `VAD_WHISPER_URL` | `http://127.0.0.1:8000/inference` | ASR endpoint that receives each WAV segment |
+| `VAD_UNITY_PORT` | `5005` | TCP port this tool sends transcriptions to |
+| `VAD_MUTE_PORT` | `5006` | TCP port this tool listens on for `start` / `mute` |
+| `VAD_THRESHOLD_DB` | `-30.0` | Voice-activity threshold in dB |
+| `VAD_SILENCE_MS` | `1200` | Silence (ms) before a segment is finalized |
+
 ## Build
 
 ```sh

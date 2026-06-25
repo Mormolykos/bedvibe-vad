@@ -1,6 +1,9 @@
 # Rust build output (regenerates on `cargo build`)
 /target
 
+# Local environment overrides (copy .env.example -> .env)
+.env
+
 # OS / editor cruft
 .DS_Store
 Thumbs.db
